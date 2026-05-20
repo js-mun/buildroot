@@ -13,7 +13,9 @@ cd buildroot
 make qemu_x86_64_defconfig
 ```
 
-config 설정
+Buildroot config
+- make menuconfig = Buildroot 시스템(파일 시스템, 패키지) 설정
+- make linux-menuconfig = 리눅스 커널(드라이버, 하드웨어 기능) 설정
 ```
 make menuconfig
 
@@ -21,16 +23,35 @@ Target packages > Libraries > Graphics
 [*] libdrm
 
 Target packages > Libraries > Graphics > libdrm
-[*]   Install test programs  
+[*]   Install test programs
 
 Target packages > Debugging, profiling and benchmark
 [*] strace
+
+System configuration
+[ ] Enable root login with password
+```
+
+Linux config
+```
+make linux-menuconfig
+
+# 아래 3개 검색하여 y로
+NET_9P
+NET_9P_VIRTIO
 ```
 
 빌드
 ```
 make -j$(nproc)
 ```
+
+Linux config 변경 시 커널 빌드
+```
+make linux-rebuild -j$(nproc)
+make -j$(nproc)
+```
+
 
 빌드가 완료되면 output/images/ 디렉토리에 두 개의 파일 생성
 - bzImage: 가상머신용 리눅스 커널 소스
@@ -51,12 +72,29 @@ qemu-system-x86_64 \
   -device virtio-net-pci,netdev=eth0 \
   -device virtio-gpu-pci \
   -display sdl,gl=on \
-  -serial stdio
+  -serial stdio \
+  -virtfs local,path=/home/mj/work/share_folder,mount_tag=host_share,security_model=none,id=host_share
+```
+추가 설정
+```
+drm.debug 로그 출력
+  -append "root=/dev/sda console=ttyS0 drm.debug=0x1ff log_buf_len=4M" \
+
+root로 진입(init을 sh로 변경하여 login 건너뜀 -> rcS 같은 일반적인 부팅 초기화도 건너뜀)
+  -append "root=/dev/sda console=ttyS0 init=/bin/sh" \
 ```
 
-- -vga none -device virtio-gpu-pci: 구형 VGA 에뮬레이션을 끄고 현대적인 가상 GPU 드라이버 VirtIO-GPU 사용 (리눅스 커널의 virtio_gpu 드라이버와 매핑)
-- -display sdl,gl=on: 가상머신의 출력을 우분투 호스트 SDL2로 띄움, OpenGL 가속을 활성화
-- -serial stdio: 가상머신의 터미널 콘솔 입출력을 현재 호스트 터미널에 보여줌
+
+
+Host share folder 마운트
+```
+mkdir -p /mnt/share && mount -t 9p -o trans=virtio host_share /mnt/share
+```
+
+## strace to perfetto trace
+```
+python3 mydocs/strace_to_perfetto.py modetest.strace -o modetest.perfetto.json
+```
 
 
 ## 테스트
@@ -64,8 +102,22 @@ qemu-system-x86_64 \
 modetest
 ```
 
-아래 명령어 입력 시, 화면 출력 
+아래 명령어 입력 시, 화면 출력
 ```
 # modetest -M virtio_gpu -s <Connector_ID>@<CRTC_ID>:<해상도_이름>
 modetest -M virtio_gpu -s 38@37:1024x768
+```
+
+
+strace
+```
+strace -f -tt -T -o /mnt/share/modetest.strace modetest -M virtio_gpu -s 38@37:1024x768
+```
+
+
+## libdrm module build
+rebuild 안붙이면, 스탬프 확인 후 빌드 스킵. 리빌드 이후에 make해야 패키징
+```
+make -j8 libdrm-rebuild
+make -j8
 ```
