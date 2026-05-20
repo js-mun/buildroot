@@ -1,0 +1,72 @@
+DRM/KMS에서 보통 등장하는 자원은:
+- connector: 모니터/디스플레이 출력단
+- CRTC: scanout 엔진, 프레임을 읽어내는 주체
+- plane: 실제로 뿌릴 픽셀 레이어
+- framebuffer: GPU가 읽을 픽셀 데이터
+
+modetest -M virtio_gpu -s 38@37:1024x768
+
+"-M virtio_gpu"
+- 사용할 DRM 드라이버를 virtio_gpu로 지정합니다.
+- 내부적으로 /dev/dri/card0에 연결된 장치 중 virtio_gpu를 선택하는 느낌입니다.
+
+"-s 38@37:1024x768"
+- 특정 connector와 CRTC를 묶어서 mode-set 하겠다는 뜻입니다.
+- 보통 형식은: connector_id@crtc_id:WxH
+
+여기서:
+- 38은 connector ID
+- 37은 CRTC ID
+- 1024x768은 설정할 해상도
+
+
+37, 38 같은 ID는 고정값이 아닐 수 있다는 겁니다.
+아래 명령어로 확인
+
+```
+# modetest -M virtio_gpu
+opened device `virtio GPU` on driver `virtio_gpu` (version 0.1.0 at 0)
+Encoders:
+id	crtc	type	possible crtcs	possible clones
+39	37	Virtual	0x00000001	0x00000001
+
+Connectors:
+id	encoder	status		name		size (mm)	modes	encoders
+38	39	connected	Virtual-1      	320x200		26	39
+```
+
+
+화면에 출력되는 실제 과정
+
+modetest가 화면을 띄울 때 내부적으로는 대략 다음 순서입니다.
+- virtio_gpu DRM 디바이스를 엽니다.
+- 가능한 connector, CRTC, plane 목록을 조회합니다.
+- 지정한 해상도 1024x768에 맞는 mode를 찾거나 생성합니다.
+- framebuffer를 만들고, 그 안에 테스트 패턴이나 색상 블록을 채웁니다.
+- connector 38을 crtc 37에 연결합니다.
+- 해당 framebuffer를 plane에 걸어줍니다.
+- 커널이 그 framebuffer를 scanout 대상으로 삼습니다.
+- QEMU의 SDL 창이 그 출력을 받아 실제 호스트 화면에 보여줍니다.
+
+
+QEMU 쪽과의 연결
+
+이 구성에서는 출력 경로가 이렇게 이어집니다.
+
+```
+modetest
+  -> libdrm ioctl
+    -> Linux DRM core
+      -> virtio_gpu 드라이버
+        -> virtio-gpu 가상 장치
+          -> QEMU
+            -> SDL 창
+              -> 호스트 화면
+```
+
+왜 -display sdl,gl=on이 필요한가
+
+- SDL은 QEMU가 게스트 화면을 호스트에 표시하는 백엔드입니다.
+- gl=on은 렌더링 경로에 OpenGL을 쓰도록 해, virgl/그래픽 경로와 맞물릴 수 있게 합니다.
+- 다만 modetest 자체는 OpenGL을 쓰는 게 아니라 DRM/KMS를 씁니다.
+- OpenGL은 주로 QEMU 호스트 쪽에서 화면을 보여주는 데 도움을 줍니다.
