@@ -1,0 +1,68 @@
+@startuml
+title modetest -M virtio_gpu -s 38@37:1024x768
+
+actor User
+participant "main()\nmodetest.c" as Main
+participant "parse_connector()\nmodetest.c" as ParseConnector
+participant "util_open()\nkms.c" as UtilOpen
+participant "DRM core\n(/dev/dri/card0)" as DRM
+participant "get_resources()\nmodetest.c" as GetResources
+participant "set_mode()\nmodetest.c" as SetMode
+participant "connector_find_mode()\nmodetest.c" as FindMode
+participant "pipe_find_crtc_and_mode()\nmodetest.c" as FindCrtcMode
+participant "drmModeSetCrtc()\nlibdrm ioctl wrapper" as SetCrtc
+participant "virtio_gpu driver" as VirtioGPU
+
+User -> Main : modetest -M virtio_gpu -s 38@37:1024x768
+activate Main
+
+Main -> ParseConnector : parse "-s 38@37:1024x768"
+activate ParseConnector
+ParseConnector --> Main : pipe_args{con_id=38, crtc_id=37,\nmode="1024x768", format="XR24"}
+deactivate ParseConnector
+
+Main -> UtilOpen : open DRM device for module virtio_gpu
+activate UtilOpen
+UtilOpen -> DRM : open("/dev/dri/card0"), drmIsKMS(), drmGetVersion()
+DRM --> UtilOpen : fd + version info
+deactivate UtilOpen
+
+Main -> GetResources : get_resources(fd)
+activate GetResources
+GetResources -> DRM : drmSetClientCap(UNIVERSAL_PLANES)\nget resources/connectors/crtcs/planes\nget properties
+DRM --> GetResources : connector/crtc/plane tables
+deactivate GetResources
+
+Main -> SetMode : set_mode(&pipe_args)
+activate SetMode
+
+SetMode -> FindMode : connector_find_mode(38, "1024x768")
+activate FindMode
+FindMode -> DRM : lookup connector 38 / available modes
+DRM --> FindMode : matching mode + mode info
+deactivate FindMode
+
+SetMode -> FindCrtcMode : pipe_find_crtc_and_mode()
+activate FindCrtcMode
+FindCrtcMode -> DRM : resolve CRTC 37 and verify linkability
+DRM --> FindCrtcMode : crtc id 37 accepted
+deactivate FindCrtcMode
+
+SetMode -> DRM : bo_fb_create()\nDRM_IOCTL_MODE_CREATE_DUMB\nDRM_IOCTL_MODE_ADDFB2
+DRM --> SetMode : fb_id + backing buffer
+
+SetMode -> SetCrtc : drmModeSetCrtc(fd, 37, fb_id, ... , connector 38, mode 1024x768)
+activate SetCrtc
+SetCrtc -> DRM : DRM_IOCTL_MODE_SETCRTC
+DRM -> VirtioGPU : program scanout / attach framebuffer
+VirtioGPU --> DRM : modeset success
+DRM --> SetCrtc : 0
+deactivate SetCrtc
+
+SetMode --> Main : success
+deactivate SetMode
+
+Main --> User : framebuffer now visible in SDL window
+deactivate Main
+
+@enduml
