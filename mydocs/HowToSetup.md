@@ -116,8 +116,14 @@ strace -f -tt -T -o /mnt/share/modetest.strace modetest -M virtio_gpu -s 38@37:1
 
 
 ## libdrm module build
-rebuild 안붙이면, 스탬프 확인 후 빌드 스킵. 리빌드 이후에 make해야 패키징
+rebuild all로 모듈 빌드 및 rootfs 이미지 재생성
 ```
-make -j8 libdrm-rebuild
-make -j8
+make -j8 libdrm-rebuild all
+```
+
+
+## run.sh
+run.sh로 QEMU 및 명령어 자동 실행 시, expect 설치 필요
+```
+sudo apt install expect
 ```
