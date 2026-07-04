@@ -70,3 +70,38 @@ modetest
 - gl=on은 렌더링 경로에 OpenGL을 쓰도록 해, virgl/그래픽 경로와 맞물릴 수 있게 합니다.
 - 다만 modetest 자체는 OpenGL을 쓰는 게 아니라 DRM/KMS를 씁니다.
 - OpenGL은 주로 QEMU 호스트 쪽에서 화면을 보여주는 데 도움을 줍니다.
+
+
+
+
+
+modetest -M virtio_gpu -s 38@37:1024x768 -a -P 33@37:1024x768@XR24
+
+// resources
+  crtc[0]: id=37 fb=0 pos=(0,0) size=(0x0)
+  encoder[0]: id=39 crtc=0 type=Virtual possible_crtcs=0x00000001 possible_clones=0x00000001
+  connector[0]: id=38 encoder=0 status=connected name=Virtual-1 size=320x200 modes=26 encoders=39
+    modes:
+    #22 1024x768 60.00 1024 1048 1184 1344 768 771 777 806 65000 flags: nhsync, nvsync; type: driver
+  plane[0]: id=33 crtc=0 fb=0 crtc_xy=(0,0) xy=(0,0) gamma=0 possible_crtcs=0x00000001
+    formats: XR24
+
+// set_mode()에서 설정
+atomic: queue CONNECTOR 38 property CRTC_ID = 37
+setting mode 1024x768-60.00Hz on connectors 38, crtc 37
+atomic: create property blob MODE_ID = 41 for CRTC 37 (1024x768-60.00Hz)
+atomic: queue CRTC 37 property MODE_ID = 41
+atomic: queue CRTC 37 property ACTIVE = 1
+atomic: begin plane setup count=1
+testing 1024x768@XR24 on plane 33, crtc 37
+atomic: set plane 33 on crtc 37 fb=0 src=1024x768 dst=0x0+0+0 scale=1.00
+atomic: queue PLANE 33 property FB_ID = 42
+atomic: queue PLANE 33 property CRTC_ID = 37
+atomic: queue PLANE 33 property SRC_X = 0
+atomic: queue PLANE 33 property SRC_Y = 0
+atomic: queue PLANE 33 property SRC_W = 67108864
+atomic: queue PLANE 33 property SRC_H = 50331648
+atomic: queue PLANE 33 property CRTC_X = 0
+atomic: queue PLANE 33 property CRTC_Y = 0
+atomic: queue PLANE 33 property CRTC_W = 1024
+atomic: queue PLANE 33 property CRTC_H = 768

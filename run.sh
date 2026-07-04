@@ -4,8 +4,9 @@ set -euo pipefail
 debug_kernel=0
 debug_libgl=0
 run_test=0
+use_atomic=0
 
-while getopts ":dvt" opt; do
+while getopts ":dvat" opt; do
   case "$opt" in
     d)
       debug_kernel=1
@@ -13,11 +14,14 @@ while getopts ":dvt" opt; do
     v)
       debug_libgl=1
       ;;
+    a)
+      use_atomic=1
+      ;;
     t)
       run_test=1
       ;;
     *)
-      echo "usage: $0 [-d] [-v] [-t]" >&2
+      echo "usage: $0 [-d] [-v] [-a] [-t]" >&2
       exit 1
       ;;
   esac
@@ -52,6 +56,11 @@ if [ "$run_test" -eq 0 ]; then
   exec "${qemu_cmd[@]}"
 fi
 
+modetest_cmd="modetest -M virtio_gpu -s 38@37:1024x768"
+if [ "$use_atomic" -eq 1 ]; then
+  modetest_cmd="$modetest_cmd -a -P 33@37:1024x768@XR24"
+fi
+
 exec expect -c "
 set timeout 120
 
@@ -59,7 +68,7 @@ spawn -noecho $qemu_spawn_cmd
 
 expect {
   -re {# } {
-    sleep 2
+    sleep 0.5
     if {$debug_libgl == 1} {
       send -- \"export LIBGL_DEBUG=verbose\r\"
     } else {
@@ -74,7 +83,7 @@ expect {
 
 expect {
   -re {# } {
-    send -- \"modetest -M virtio_gpu -s 38@37:1024x768\r\"
+    send -- \"$modetest_cmd\r\"
   }
   timeout {
     puts stderr \"timeout waiting before modetest\"
@@ -85,3 +94,14 @@ expect {
 puts \"modetest started in background; handing control to interactive shell\"
 interact
 "
+
+
+
+# -F primary,secondary
+# patterns: tiles, plain, smpte, gradient, noise, noise-color, black-white
+# modetest -M virtio_gpu -s 38@37:1024x768 -F tiles,plain
+# modetest -M virtio_gpu -s 38@37:1024x768 -F noise,black-white
+# modetest -M virtio_gpu -s 38@37:1024x768 -F gradient,plain
+# modetest -M virtio_gpu -s 38@37:1024x768 -F smpte,plain  (default)
+
+
