@@ -77,8 +77,7 @@ exec qemu-system-x86_64 \
 
 ```
 # 게스트 안에서
-mkdir -p /mnt/share
-mount -t 9p -o trans=virtio host_share /mnt/share
+mkdir -p /mnt/share && mount -t 9p -o trans=virtio host_share /mnt/share
 
 # 호스트에서 빌드한 .ko를 share_folder에 복사
 mj@mj:~/work/study_linux_graphics/Linux-Kernel-Programming_2E/ch4/helloworld_lkm$ cp helloworld_lkm.ko ~/work/share_folder/

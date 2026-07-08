@@ -1,0 +1,78 @@
+@startuml
+title virtio-gpu DRM stack with real files and functions
+
+skinparam shadowing false
+skinparam monochrome true
+autonumber
+
+participant "QEMU\nhw/display/virtio-gpu-pci.c" as QEMUPCI
+participant "QEMU\nhw/virtio/virtio-pci.c" as VirtioPCICore
+participant "QEMU\nhw/display/virtio-gpu.c" as QEMUGPU
+participant "Linux PCI core" as PCICore
+participant "virtio_pci\n(kernel driver)" as VirtioPCI
+participant "virtio core\n(kernel driver)" as VirtioCore
+participant "virtio_gpu\n(kernel DRM driver)" as VirtioGPU
+participant "DRM core\n(kernel DRM subsystem)" as DRMCore
+participant "libdrm\noutput/build/libdrm-2.4.131/xf86drm.c" as LibDRM
+participant "modetest\noutput/build/libdrm-2.4.131/tests/modetest/modetest.c" as Modetest
+participant "kms.c\noutput/build/libdrm-2.4.131/tests/util/kms.c" as KMS
+
+== Boot / probe ==
+QEMUPCI -> VirtioPCICore : virtio_gpu_pci_base_realize()\n(hw/display/virtio-gpu-pci.c)
+VirtioPCICore -> QEMUGPU : virtio_pci_realize()\n(hw/virtio/virtio-pci.c)
+QEMUGPU -> QEMUGPU : virtio_gpu_device_realize()\n(hw/display/virtio-gpu.c)
+QEMUGPU -> QEMUGPU : set up virtio queues / scanouts
+QEMUGPU -> PCICore : PCI device visible to guest
+PCICore -> VirtioPCI : kernel probe/bind
+VirtioPCI -> VirtioCore : virtio transport setup
+VirtioCore -> VirtioGPU : virtio_gpu kernel probe
+VirtioGPU -> DRMCore : drm_dev_init()\ndrm_dev_register()
+DRMCore --> VirtioGPU : /dev/dri/card0 created\nconnector / crtc / plane registered
+
+== User space open ==
+Modetest -> KMS : main() -> util_open(module="virtio_gpu")
+KMS -> LibDRM : drmOpen(module, device)\n(or open /dev/dri/card0)
+LibDRM -> LibDRM : drmOpenByName()\ndrmOpenDevice()\ndrmGetVersion()
+LibDRM --> KMS : fd + version->name = "virtio_gpu"
+
+== Query DRM objects ==
+Modetest -> Modetest : get_resources(&dev)
+Modetest -> DRMCore : drmSetClientCap(DRM_CLIENT_CAP_UNIVERSAL_PLANES)
+Modetest -> DRMCore : drmModeGetResources()\ndrmModeGetPlaneResources()
+Modetest -> DRMCore : drmModeObjectGetProperties()\ndrmModeGetProperty()
+DRMCore --> Modetest : connectors / CRTCs / planes / props
+
+== Parse and resolve -s ==
+Modetest -> Modetest : parse_connector("38@37:1024x768")
+Modetest -> Modetest : pipe_args{cons="38", crtc_id=37,\nmode_str="1024x768", format_str="XR24"}
+Modetest -> Modetest : pipe_resolve_connectors()\npipe_find_crtc_and_mode()
+
+== Modeset ==
+Modetest -> Modetest : set_mode(&dev, &pipe_args, count)
+Modetest -> Modetest : connector_find_mode(38, "1024x768")
+Modetest -> Modetest : bo_fb_create()\ncreate dumb buffer + drmModeAddFB2()
+Modetest -> DRMCore : drmModeSetCrtc(fd, 37, fb_id, ...)\nlegacy path
+DRMCore -> VirtioGPU : atomic/legacy KMS commit\nscanout update
+VirtioGPU -> QEMUGPU : host visible framebuffer update
+QEMUGPU --> Modetest : SDL window shows the image
+
+note right of Modetest
+Important functions in modetest.c
+- main()
+- parse_connector()
+- get_resources()
+- set_mode()
+- connector_find_mode()
+- pipe_find_crtc_and_mode()
+end note
+
+note right of KMS
+Important functions in kms.c / xf86drm.c
+- util_open()
+- drmOpen()
+- drmOpenByName()
+- drmOpenDevice()
+- drmGetVersion()
+end note
+
+@enduml
