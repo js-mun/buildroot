@@ -1,0 +1,104 @@
+@startuml
+title Linux kernel boot to virtio-gpu / DRM registration
+
+skinparam shadowing false
+skinparam monochrome true
+autonumber
+
+participant "bootloader\n(QEMU BIOS -> bzImage)" as Bootloader
+participant "start_kernel()\n(init/main.c)" as StartKernel
+participant "rest_init()\n(init/main.c)" as RestInit
+participant "kernel_init()\n(init/main.c)" as KernelInit
+participant "do_basic_setup()\n(init/main.c)" as BasicSetup
+participant "do_initcalls()\n(init/main.c)" as Initcalls
+participant "PCI core\n(drivers/pci/)" as PCICore
+participant "virtio_gpu_driver_init()\n(drivers/gpu/drm/virtio/virtgpu_drv.c)" as VirtioGPUInit
+participant "register_virtio_driver()\n(drivers/virtio/virtio.c)" as RegisterVirtio
+participant "virtio_gpu_probe()\n(drivers/gpu/drm/virtio/virtgpu_drv.c)" as VirtioGPUProbe
+participant "drm_dev_alloc()\n(drivers/gpu/drm/drm_drv.c)" as DRMDevAlloc
+participant "virtio_gpu_init()\n(drivers/gpu/drm/virtio/virtgpu.c)" as VirtioGPUInitHw
+participant "virtio_gpu_modeset_init()\n(drivers/gpu/drm/virtio/virtgpu_display.c)" as VirtioGPUModesetInit
+participant "drmm_mode_config_init()\n(drivers/gpu/drm/drm_drv.c)" as DRMModeConfigInit
+participant "vgdev_output_init()\n(drivers/gpu/drm/virtio/virtgpu_display.c)" as VGDevOutputInit
+participant "drm_crtc_init_with_planes()\n(drivers/gpu/drm/drm_crtc.c)" as DRMCRTCInit
+participant "drm_connector_init()\n(drivers/gpu/drm/drm_connector.c)" as DRMConnectorInit
+participant "drm_simple_encoder_init()\n(drivers/gpu/drm/drm_simple_kms_helper.c)" as DRMEncoderInit
+participant "drm_dev_register()\n(drivers/gpu/drm/drm_drv.c)" as DRMRegister
+participant "drm_client_setup()\n(drivers/gpu/drm/clients/drm_client_setup.c)" as DRMClientSetup
+participant "console_init()/printk\n(kernel/printk)" as Console
+participant "init\n(/sbin/init or /bin/sh)" as InitProcess
+participant "modetest\n(user space)" as Modetest
+
+== Boot starts ==
+Bootloader -> StartKernel : jump into Linux kernel entry
+note right of StartKernel
+We skip early arch setup:
+decompress, paging, CPU bring-up,
+and other low-level init.
+end note
+
+StartKernel -> Console : printk/log buffer ready\nearly boot messages start
+StartKernel -> RestInit : rest_init()
+RestInit -> KernelInit : kernel_init()
+KernelInit -> BasicSetup : do_basic_setup()
+BasicSetup -> Initcalls : do_initcalls()
+
+== Driver init phase ==
+Initcalls -> PCICore : PCI bus init / device discovery
+Initcalls -> VirtioGPUInit : module_init(virtio_gpu_driver_init)
+VirtioGPUInit -> RegisterVirtio : register_virtio_driver(&virtio_gpu_driver)
+RegisterVirtio -> VirtioGPUProbe : match VIRTIO_ID_GPU\ninvoke .probe = virtio_gpu_probe()
+VirtioGPUProbe -> DRMDevAlloc : drm_dev_alloc(&driver, parent)
+DRMDevAlloc --> VirtioGPUProbe : struct drm_device *dev
+VirtioGPUProbe -> VirtioGPUInitHw : virtio_gpu_init(vdev, dev)
+VirtioGPUInitHw -> VirtioGPUModesetInit : virtio_gpu_modeset_init(vgdev)
+VirtioGPUModesetInit -> DRMModeConfigInit : drmm_mode_config_init(vgdev->ddev)
+DRMModeConfigInit --> VirtioGPUModesetInit : mode_config ready
+loop for each scanout
+  VirtioGPUModesetInit -> VGDevOutputInit : vgdev_output_init(vgdev, index)
+  VGDevOutputInit -> DRMCRTCInit : drm_crtc_init_with_planes()
+  VGDevOutputInit -> DRMConnectorInit : drm_connector_init()
+  VGDevOutputInit -> DRMEncoderInit : drm_simple_encoder_init()
+end
+VirtioGPUModesetInit --> VirtioGPUInitHw : CRTC / connector / encoder registered
+VirtioGPUInitHw --> VirtioGPUProbe : scanouts / buffers / DRM state ready
+VirtioGPUProbe -> DRMRegister : drm_dev_register(dev, 0)
+DRMRegister --> VirtioGPUProbe : /dev/dri/card0 created
+VirtioGPUProbe -> DRMClientSetup : drm_client_setup(vdev->priv, NULL)
+DRMClientSetup --> VirtioGPUProbe : fbdev/log client attach if enabled
+
+note right of VirtioGPUProbe
+This is the important point:
+the DRM device becomes available
+during kernel driver initialization,
+not later in user space.
+
+In virtio_gpu_probe():
+1. drm_dev_alloc()
+2. virtio_gpu_init()
+   -> virtio_gpu_modeset_init()
+      -> drmm_mode_config_init()
+      -> vgdev_output_init()
+         -> drm_crtc_init_with_planes()
+         -> drm_connector_init()
+         -> drm_simple_encoder_init()
+3. drm_dev_register()
+4. drm_client_setup()
+end note
+
+== Userspace starts ==
+KernelInit -> InitProcess : spawn PID 1
+InitProcess -> Console : buildroot login:\n(or /bin/sh if init=/bin/sh)
+InitProcess -> Modetest : user launches modetest
+Modetest -> DRMRegister : opens /dev/dri/card0\nand uses DRM ioctls
+
+note over Modetest
+For learning:
+1. boot to kernel init
+2. PCI/virtio GPU probe
+3. DRM registration
+4. user space opens /dev/dri/card0
+5. modetest issues KMS ioctls
+end note
+
+@enduml
