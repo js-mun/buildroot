@@ -44,6 +44,44 @@ static int open_drm(void)
 	return -1;
 }
 
+static int open_virtio_gpu(void)
+{
+	const char *candidates[] = {
+		"/dev/dri/card0",
+		"/dev/dri/card1",
+		"/dev/dri/card2",
+		"/dev/dri/renderD128",
+		"/dev/dri/renderD129",
+	};
+
+	for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
+		int fd = open(candidates[i], O_RDWR | O_CLOEXEC);
+		if (fd < 0)
+			continue;
+
+		drmVersion *version = drmGetVersion(fd);
+		if (!version) {
+			close(fd);
+			continue;
+		}
+
+		printf("util_open: %s, %.*s\n",
+		       candidates[i],
+		       version->name_len,
+		       version->name ? version->name : "");
+
+		if (version->name && strcmp(version->name, "virtio_gpu") == 0) {
+			drmFreeVersion(version);
+			return fd;
+		}
+
+		drmFreeVersion(version);
+		close(fd);
+	}
+
+	return -1;
+}
+
 static const char *connector_status_str(unsigned int status)
 {
 	switch (status) {
@@ -77,7 +115,12 @@ static void list_resources(struct testapp_ctx *ctx)
 		return;
 	}
 
+	if (drmSetClientCap(ctx->fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) != 0)
+		perror("drmSetClientCap(DRM_CLIENT_CAP_UNIVERSAL_PLANES)");
+
 	ctx->plane_res = drmModeGetPlaneResources(ctx->fd);
+	if (!ctx->plane_res)
+		perror("drmModeGetPlaneResources");
 
 	printf("Connectors (%d)\n", ctx->res->count_connectors);
 	for (int i = 0; i < ctx->res->count_connectors; i++) {
@@ -325,9 +368,9 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	ctx.fd = open_drm();
+	ctx.fd = open_virtio_gpu();
 	if (ctx.fd < 0) {
-		perror("open /dev/dri/card0");
+		perror("open virtio_gpu DRM device");
 		return EXIT_FAILURE;
 	}
 
