@@ -1,0 +1,5 @@
+config BR2_PACKAGE_TESTAPP
+	bool "testapp"
+	default y
+	help
+	  A tiny hello world application for Buildroot.
